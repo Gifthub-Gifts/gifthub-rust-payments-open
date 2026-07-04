@@ -1,0 +1,30 @@
+[package]
+name = "gifthub-rust-payments"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dotenv = "0.15"
+log = "0.4"
+env_logger = "0.11"
+# Sign the result callback to Django (X-Payment-Signature: sha256=<hex HMAC-SHA256 of the body>).
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+# Cryptomus request signing: MD5(base64(json_body) + api_key) — the provider's own (legacy) scheme,
+# not a security choice made here.
+md5 = "0.7"
+base64 = "0.22"
+
+# Size-optimized release binary — mirrors the gifthub-rust-ai / vpn-watchdog house profile.
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
