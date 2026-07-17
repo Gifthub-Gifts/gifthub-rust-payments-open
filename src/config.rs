@@ -4,8 +4,8 @@
 //! a `OnceLock` accessor returning `&'static Config`. Required vars `.expect("X must be set")` so a
 //! misconfigured service fails loudly at boot; optional vars parse-or-default.
 //!
-//! Simpler than the AI gateway on purpose: there is no provider failover chain, no rpm/rpd budget to
-//! learn, no per-purpose routing. `provider` on the job selects NOWPayments vs Cryptomus directly.
+//! Simpler than the AI gateway on purpose: there is no provider failover chain. No Redis either —
+//! this gateway is pull-based (it polls Django for what to check) rather than queue-based.
 
 use std::env;
 use std::sync::OnceLock;
@@ -19,16 +19,19 @@ pub fn get_config() -> &'static Config {
 }
 
 pub struct Config {
-    pub redis_url: String,
-    pub jobs_key: String,
+    /// Django endpoint we GET the due-for-reconciliation list from. Required.
+    pub due_url: String,
     /// Django endpoint we POST each finished [`crate::job::JobResult`] to (HMAC-signed). Required.
     pub callback_url: String,
-    /// Shared secret for the `X-Payment-Signature` HMAC (must match Django's
-    /// `PAYMENT_GATEWAY_WEBHOOK_SECRET`).
+    /// Shared secret: `Authorization: Bearer <secret>` on the due-list GET, and the
+    /// `X-Payment-Signature` HMAC key on the callback POST. Must match Django's
+    /// `PAYMENT_GATEWAY_WEBHOOK_SECRET`.
     pub webhook_secret: String,
+    /// How often to poll the due-list. Ticks overlap (a new fetch starts on schedule regardless of
+    /// whether the previous tick's items finished processing) — items are independent and idempotent.
+    pub poll_interval_secs: u64,
     pub callback_max_attempts: u32,
     pub callback_timeout_secs: u64,
-    pub pop_timeout_secs: u64,
     pub max_concurrency: usize,
     pub connect_timeout_secs: u64,
     pub request_timeout_secs: u64,
@@ -46,16 +49,16 @@ impl Config {
         dotenv().ok();
 
         Config {
-            redis_url: env::var("REDIS_URL").expect("REDIS_URL must be set"),
-            jobs_key: env::var("PAYMENT_JOBS_KEY").unwrap_or_else(|_| "payment_jobs".to_string()),
+            due_url: env::var("DJANGO_DUE_URL")
+                .expect("DJANGO_DUE_URL must be set (e.g. http://127.0.0.1:8000/internal/payments/due/)"),
             callback_url: env::var("DJANGO_CALLBACK_URL").expect(
                 "DJANGO_CALLBACK_URL must be set (e.g. http://127.0.0.1:8000/internal/payments/callback/)",
             ),
             webhook_secret: env::var("PAYMENT_GATEWAY_WEBHOOK_SECRET")
                 .expect("PAYMENT_GATEWAY_WEBHOOK_SECRET must be set (must match Django)"),
+            poll_interval_secs: parse_or("POLL_INTERVAL_SECS", 15u64),
             callback_max_attempts: parse_or("CALLBACK_MAX_ATTEMPTS", 5u32),
             callback_timeout_secs: parse_or("CALLBACK_TIMEOUT_SECS", 15u64),
-            pop_timeout_secs: parse_or("POP_TIMEOUT_SECS", 5u64),
             max_concurrency: parse_or("MAX_CONCURRENCY", 8usize),
             connect_timeout_secs: parse_or("CONNECT_TIMEOUT_SECS", 10u64),
             request_timeout_secs: parse_or("REQUEST_TIMEOUT_SECS", 30u64),

@@ -40,6 +40,11 @@ async fn fetch_nowpayments(
         .map_err(to_lookup_error)?;
 
     let status = resp.status();
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(LookupError::RateLimited {
+            retry_after: parse_retry_after(resp.headers()),
+        });
+    }
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         return Err(LookupError::Api {
@@ -79,6 +84,11 @@ async fn fetch_cryptomus(
         .map_err(to_lookup_error)?;
 
     let status = resp.status();
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(LookupError::RateLimited {
+            retry_after: parse_retry_after(resp.headers()),
+        });
+    }
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
         return Err(LookupError::Api {
@@ -105,6 +115,17 @@ async fn fetch_cryptomus(
             body: text,
         }),
     }
+}
+
+/// Parse the standard `Retry-After` header, seconds form only (`Retry-After: 30`) — the HTTP-date
+/// form exists but is rare for JSON APIs; if present in that form (or absent), the rate limiter
+/// falls back to its own exponential backoff instead of guessing at a date parse.
+fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<std::time::Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map(std::time::Duration::from_secs)
 }
 
 fn cryptomus_sign(api_key: &str, body: &[u8]) -> String {
@@ -138,6 +159,25 @@ mod tests {
         );
         assert_eq!(cryptomus_sign("key", body), cryptomus_sign("key", body));
         assert_ne!(cryptomus_sign("key", body), cryptomus_sign("other", body));
+    }
+
+    #[test]
+    fn retry_after_parses_seconds_form_and_ignores_garbage() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(reqwest::header::RETRY_AFTER, "30".parse().unwrap());
+        assert_eq!(
+            parse_retry_after(&headers),
+            Some(std::time::Duration::from_secs(30))
+        );
+
+        let mut date_form = reqwest::header::HeaderMap::new();
+        date_form.insert(
+            reqwest::header::RETRY_AFTER,
+            "Wed, 21 Oct 2026 07:28:00 GMT".parse().unwrap(),
+        );
+        assert_eq!(parse_retry_after(&date_form), None); // date form: fall back to our own backoff
+
+        assert_eq!(parse_retry_after(&reqwest::header::HeaderMap::new()), None);
     }
 
     #[test]
