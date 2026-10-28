@@ -83,5 +83,5 @@ HMAC-SHA256 of the body, keyed by the shared secret>`, JSON:
 - **Graceful shutdown**: SIGTERM/SIGINT flips a `tokio::sync::watch` bus; in-flight items (bounded
   by `MAX_CONCURRENCY`) drain before exit.
 
-See `DEPLOY.md` for systemd + CI deploy setup (including the cutover from the old
-`gifthub-payments-worker`), and `.env.example` for the full config reference.
+See `.env.example` for the full config reference. The systemd and CI deploy setup is kept in the
+private production repo.
