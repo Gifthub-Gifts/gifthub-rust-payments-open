@@ -1,0 +1,29 @@
+[Unit]
+Description=GiftHub Rust payments gateway (NOWPayments + Cryptomus reconciliation)
+# Pull-based, no Redis — just needs the network to reach Django and the providers.
+After=network.target
+
+[Service]
+# Matches the sibling /srv/gifthub* units on this host (run as root, EnvironmentFile on disk).
+User=root
+Group=root
+WorkingDirectory=/srv/gifthub-rust-payments
+# Runtime config (Django endpoints + provider API keys) lives here, NOT in the repo or CI. See DEPLOY.md.
+EnvironmentFile=/srv/gifthub-rust-payments/.env
+ExecStart=/srv/gifthub-rust-payments/gifthub-rust-payments
+Restart=always
+RestartSec=3
+# The process handles SIGTERM (graceful drain of in-flight jobs); give it room before SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+MemoryMax=150M
+
+# Logs go to journald; the deploy health-check greps `journalctl -u gifthub-rust-payments`.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gifthub-rust-payments
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
